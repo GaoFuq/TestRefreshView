@@ -1,0 +1,3 @@
+include ':RefreshView'
+include ':app'
+rootProject.name = "TestRefreshView"
