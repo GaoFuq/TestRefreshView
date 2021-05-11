@@ -54,7 +54,10 @@ abstract class BaseRVAdapter<DataBean>(
         }
     }
 
+
+
     abstract fun onBindView(holder: BaseVH, data: DataBean, position: Int)
 
     override fun getItemCount(): Int = dataList.size
+
 }
