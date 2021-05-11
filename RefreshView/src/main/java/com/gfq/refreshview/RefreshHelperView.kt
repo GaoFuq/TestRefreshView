@@ -4,14 +4,16 @@ import android.content.Context
 import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.NetworkInfo
+import android.util.AttributeSet
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.widget.FrameLayout
+import android.widget.RelativeLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.core.view.forEach
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
@@ -28,28 +30,20 @@ import com.scwang.smart.refresh.layout.api.RefreshLayout
  * @auth gaofuq
  * @description
  */
-class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleObserver {
-    constructor(context: Context, itemLayoutRes: Int, brId: Int = 0) : this(context) {
-        adapter = object : BaseRVAdapter<DataBean>(itemLayoutRes, brId) {
-            override fun onBindView(holder: BaseVH, data: DataBean, position: Int) {
-                bindItemView?.invoke(holder, data, position)
-            }
-        }
-        recyclerView.adapter = adapter
-    }
+class RefreshHelperView<DataBean>(context: Context, attributeSet: AttributeSet? = null) :
+    FrameLayout(context, attributeSet), LifecycleObserver {
 
-    lateinit var adapter: BaseRVAdapter<DataBean>
 
     private var curPage = 1
     private var pageSize = 10
     private var pageCount = 100
 
 
-    val recyclerView = RecyclerView(context)
-    val smartRefreshLayout = SmartRefreshLayout(context)
-    var bindItemView: ((BaseVH, DataBean, Int) -> Unit?)? = null
+    var recyclerView: RecyclerView? = null
+    var smartRefreshLayout: SmartRefreshLayout? = null
 
-    var layoutManager: RecyclerView.LayoutManager = LinearLayoutManager(context)
+    //    var bindItemView: ((BaseVH, Any, Int) -> Unit?)? = null
+    var adapter: BaseRVAdapter<DataBean>? = null
 
     var netLoseView: View? = null
     var dataEmptyView: View? = null
@@ -60,48 +54,42 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
 
     var requestData: ((curPage: Int, pageSize: Int) -> MutableList<DataBean>?)? = null
 
-    private val statusViewContainer = FrameLayout(context)
+    private var statusViewContainer: RelativeLayout? = null//无网络，无数据视图显示的区域
 
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
-    fun autoRefreshOnResume() {
-        Log.e("xx", "autoRefreshOnResume")
-        if (isAutoRefreshOnResume) {
-            callRefresh(smartRefreshLayout)
+    fun initWithCode(
+        parent: ViewGroup,
+        itemLayoutRes: Int,
+        bindItemView: ((BaseVH, DataBean, Int) -> Unit?)? = null,
+        requestData: ((curPage: Int, pageSize: Int) -> MutableList<DataBean>?)? = null
+    ) {
+        this.requestData = requestData
+        statusViewContainer = RelativeLayout(context)
+        recyclerView = RecyclerView(context)
+        smartRefreshLayout = SmartRefreshLayout(context)
+        adapter = object : BaseRVAdapter<DataBean>(itemLayoutRes = itemLayoutRes) {
+            override fun onBindView(holder: BaseVH, data: DataBean, position: Int) {
+                bindItemView?.invoke(holder, data, position)
+            }
         }
-    }
+        recyclerView!!.adapter = adapter
+        recyclerView!!.layoutManager = LinearLayoutManager(context)
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_CREATE)
-    fun autoRefreshOnCreate() {
-        Log.e("xx", "autoRefreshOnCreate")
-        if (isAutoRefreshOnCreate) {
-            callRefresh(smartRefreshLayout)
-        }
-    }
-
-
-    init {
-        if (context is ComponentActivity) {
-            context.lifecycle.addObserver(this)
-        } else if (context is Fragment) {
-            context.lifecycle.addObserver(this)
-        }
-
-        statusViewContainer.addView(
+        statusViewContainer!!.addView(
             recyclerView,
             FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
         )
-        smartRefreshLayout.addView(
+        smartRefreshLayout!!.addView(
             statusViewContainer,
             SmartRefreshLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
         )
         this.addView(smartRefreshLayout, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        parent.addView(this, MATCH_PARENT, MATCH_PARENT)
 
 
-        recyclerView.layoutManager = layoutManager
-//        adapter.dataList =
 
-        smartRefreshLayout.run {
+
+        smartRefreshLayout!!.run {
             setRefreshHeader(MaterialHeader(context))
             setRefreshFooter(ClassicsFooter(context))
             setOnRefreshListener {
@@ -115,6 +103,70 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
 
     }
 
+
+    /**
+     * 外部实例化adapter
+     */
+    fun <T> initWithXml(
+        smartRefreshLayout: SmartRefreshLayout,
+        recyclerView: RecyclerView,
+        adapter: BaseRVAdapter<T>,
+        requestData: ((curPage: Int, pageSize: Int) -> MutableList<DataBean>?)? = null
+    ) {
+        this.recyclerView = recyclerView
+        checkStatusViewContainer(recyclerView)
+        this.requestData = requestData
+        this.smartRefreshLayout = smartRefreshLayout
+        this.adapter = adapter as BaseRVAdapter<DataBean>
+        this.recyclerView!!.adapter = adapter
+        smartRefreshLayout.addView(this)
+        defaultSet()
+    }
+
+    //把 recyclerView 包裹一层 RelativeLayout
+    private fun checkStatusViewContainer(recyclerView: RecyclerView) {
+        val parent = this.recyclerView?.parent
+        if (parent == null) {
+            Log.e("【Refresh】", " rv parent == null")
+        } else {
+            if (parent is RelativeLayout) {
+                statusViewContainer = parent as RelativeLayout
+            } else {
+                val vg = parent as ViewGroup
+                vg.removeView(recyclerView)
+                statusViewContainer = RelativeLayout(context)
+                vg.addView(statusViewContainer, ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+                statusViewContainer?.addView(recyclerView)
+            }
+        }
+    }
+
+    private fun defaultSet() {
+        if (recyclerView!!.layoutManager == null) {
+            recyclerView!!.layoutManager = LinearLayoutManager(context)
+        }
+
+        smartRefreshLayout!!.run {
+            setRefreshHeader(MaterialHeader(context))
+            setRefreshFooter(ClassicsFooter(context))
+            setOnRefreshListener {
+                callRefresh(it)
+            }
+
+            setOnLoadMoreListener {
+                callLoadMore(it)
+            }
+        }
+    }
+
+    init {
+        if (context is ComponentActivity) {
+            context.lifecycle.addObserver(this)
+        } else if (context is Fragment) {
+            context.lifecycle.addObserver(this)
+        }
+    }
+
     private fun callLoadMore(refreshLayout: RefreshLayout) {
         if (isNetworkConnected(context)) {
             removeNetLoseView()
@@ -126,7 +178,6 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
     }
 
     private fun callRefresh(refreshLayout: RefreshLayout) {
-        Log.e("xx", "OnRefreshListener")
         if (isNetworkConnected(context)) {
             removeNetLoseView()
             doRefresh(refreshLayout)
@@ -149,7 +200,7 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
         if (dataList.isNullOrEmpty()) {
             refreshLayout.finishLoadMore(false)
         } else {
-            adapter.addAll(dataList)
+            adapter!!.addAll(dataList)
             refreshLayout.finishLoadMore(true)
         }
     }
@@ -164,7 +215,7 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
             refreshLayout.finishRefresh(false)
         } else {
             removeDataEmptyView()
-            adapter.dataList = dataList
+            adapter!!.dataList = dataList
             refreshLayout.finishRefresh(true)
         }
     }
@@ -175,7 +226,7 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
         }
         val parent = dataEmptyView!!.parent
         if (parent != null) {
-            statusViewContainer. removeView(dataEmptyView)
+            statusViewContainer?.removeView(dataEmptyView)
         }
     }
 
@@ -184,13 +235,14 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
             dataEmptyView = TextView(context).apply {
                 setBackgroundColor(Color.WHITE)
                 text = "一点数据也没有"
+                setBackgroundColor(Color.RED)
                 layoutParams = LayoutParams(MATCH_PARENT, MATCH_PARENT)
                 gravity = Gravity.CENTER
             }
         }
         val parent = dataEmptyView!!.parent
         if (parent == null) {
-            statusViewContainer.addView(dataEmptyView)
+            statusViewContainer?.addView(dataEmptyView)
         }
     }
 
@@ -199,13 +251,14 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
             netLoseView = TextView(context).apply {
                 setBackgroundColor(Color.WHITE)
                 text = "请检查网络"
+                setBackgroundColor(Color.GRAY)
                 layoutParams = LayoutParams(MATCH_PARENT, MATCH_PARENT)
                 gravity = Gravity.CENTER
             }
         }
         val parent = netLoseView!!.parent
         if (parent == null) {
-            statusViewContainer.addView(netLoseView)
+            statusViewContainer?.addView(netLoseView)
         }
     }
 
@@ -215,7 +268,7 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
         }
         val parent = netLoseView!!.parent
         if (parent != null) {
-            statusViewContainer.removeView(netLoseView)
+            statusViewContainer?.removeView(netLoseView)
         }
 
     }
@@ -258,4 +311,22 @@ class RefreshView<DataBean>(context: Context) : FrameLayout(context), LifecycleO
         }
         return false
     }
+
+
+    @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
+    fun autoRefreshOnResume() {
+        Log.e("xx", "autoRefreshOnResume")
+        if (isAutoRefreshOnResume) {
+            smartRefreshLayout?.let { callRefresh(it) }
+        }
+    }
+
+    @OnLifecycleEvent(Lifecycle.Event.ON_CREATE)
+    fun autoRefreshOnCreate() {
+        Log.e("xx", "autoRefreshOnCreate")
+        if (isAutoRefreshOnCreate) {
+            smartRefreshLayout?.let { callRefresh(it) }
+        }
+    }
+
 }
